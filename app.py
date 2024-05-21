@@ -18,56 +18,86 @@ from variational_distributions.normalizing_flow import (
 image_queue = queue.Queue(maxsize=400)  # Queue to store generated images
 stop_event = threading.Event()  # Event to stop the image generation thread
 last_figure = go.Figure()  # Global variable to store the last figure
-flag_for_new_threading = True  # Global variable to check if a new thread should be started
 image_thread = None
 
 app = dash.Dash(__name__)
 
-app.layout = html.Div([
-    html.H1("Variational Inference Visualization"),
-    # dcc.Store(id='', data={'A': 0, 'B': 0, 'C': 0}),
+app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
+    html.H1("Variational Inference Visualization", style={'textAlign': 'center'}),  # 居中标题
+    
     html.Div([
         dcc.Interval(
             id='interval-component',
-            interval=250,  # 200ms interval for animation effect
+            interval=250,  # 250ms interval for animation effect
             n_intervals=0,
             disabled=True  # Initially disabled
         ),
-        html.Label('Model Type:'),
-        dcc.Dropdown(
-            id='model-type',
-            options=[
-                {'label': 'Gaussian Model', 'value': 'GaussianModel'},
-                {'label': 'RezendeModel', 'value': 'RezendeModel'},
-                {'label': 'RosenbrockModel', 'value': 'RosenbrockModel'}
-            ],
-            value='GaussianModel'
-        ),
-        html.Label('Optimizer Type:'),
-        dcc.Dropdown(
-            id='optimizer-type',
-            options=[
-                {'label': 'Adam', 'value': 'Adam'},
-                {'label': 'Adamax', 'value': 'Adamax'},
-                {'label': 'RMSprop', 'value': 'RMSprop'},
-                {'label': 'SGD', 'value': 'SGD'}
-            ],
-            value='Adam'
-        ),
-        html.Label('Batch Size:'),
-        dcc.Input(id='batch-size', type='number', value=8),
-        html.Label('Learning Rate:'),
-        dcc.Input(id='learning-rate', type='number', value=1e-3),
-        html.Label('Max Iterations:'),
-        dcc.Input(id='max-iter', type='number', value=10000000),
-        html.Label('Random Seed:'),
-        dcc.Input(id='random-seed', type='number', value=2),
-        html.Button('Start', id='start-button', n_clicks=0),
-        html.Button('Stop', id='stop-button', n_clicks=0),
-        html.Button('Reset', id='reset-button', n_clicks=0),
+                 
+        html.Div([
+            html.Label('Model Type:', style={'margin-right': '10px'}),
+            dcc.Dropdown(
+                id='model-type',
+                options=[
+                    {'label': 'Gaussian Model', 'value': 'GaussianModel'},
+                    {'label': 'RezendeModel', 'value': 'RezendeModel'},
+                    {'label': 'RosenbrockModel', 'value': 'RosenbrockModel'}
+                ],
+                value='GaussianModel'
+            )
+        ], style={'margin-bottom': '10px'}),
+        
+        html.Div([
+            html.Label('Optimizer Type:', style={'margin-right': '10px'}),
+            dcc.Dropdown(
+                id='optimizer-type',
+                options=[
+                    {'label': 'Adam', 'value': 'Adam'},
+                    {'label': 'Adamax', 'value': 'Adamax'},
+                    {'label': 'RMSprop', 'value': 'RMSprop'},
+                    {'label': 'SGD', 'value': 'SGD'}
+                ],
+                value='Adam'
+            )
+        ], style={'margin-bottom': '10px'}),
+        
+        html.Div([
+            html.Label('Batch Size:', style={'margin-right': '10px'}),
+            html.Div([
+                dcc.Input(id='batch-size', type='number', value=8, step=1),  # 设置 step 属性
+            ])
+        ], style={'margin-bottom': '10px'}),
+        
+        html.Div([
+            html.Label('Learning Rate:', style={'margin-right': '10px'}),
+            html.Div([
+                dcc.Input(id='learning-rate', type='number', value=1e-3, step=0.001),  # 设置 step 属性
+            ])
+        ], style={'margin-bottom': '10px'}),
+        
+        html.Div([
+            html.Label('Max Iterations:', style={'margin-right': '10px'}),
+            html.Div([
+                dcc.Input(id='max-iter', type='number', value=10000, step=1000),  # 设置 step 属性
+            ])
+        ], style={'margin-bottom': '10px'}),
+        
+        html.Div([
+            html.Label('Random Seed:', style={'margin-right': '10px'}),
+            html.Div([
+                dcc.Input(id='random-seed', type='number', value=2, step=1),  # 设置 step 属性
+            ])
+        ], style={'margin-bottom': '10px'}),
+        
+        html.Div([
+            html.Button('Start', id='start-button', n_clicks=0, style={'margin-right': '10px'}),
+            html.Button('Stop', id='stop-button', n_clicks=0, style={'margin-right': '10px'}),
+            html.Button('Reset', id='reset-button', n_clicks=0)
+        ], style={'margin-bottom': '20px'}),
+        
         dcc.Graph(id='output-graph')
-    ])
+    ], style={'margin': '0 auto', 'width': '80%', 'max-width': '1200px'})  # 居中并限制宽度
 ])
+
 
 def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed):
     global image_queue, stop_event
@@ -150,7 +180,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                 xbins=dict(start=-2, end=2, size=0.04),
                 ybins=dict(start=-2, end=3, size=0.05),
                 colorscale='Viridis',
-                colorbar=dict(title='Density', x=0.45)
+                colorbar=dict(title='Density', x=0.448)
             ), row=1, col=1)
             
             fig.add_trace(go.Contour(
@@ -172,7 +202,10 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
             ), row=1, col=2)
             
             fig.update_layout(
-                title="Variational Inference Visualization",
+                #TODO: iteration count
+                title="Variational Inference Visualization --- Iteration: " + str(iteration_count),
+                title_x=0.5,
+                title_y=0.9,  # 根据需要调整此值以控制标题在垂直方向上的位置        
                 height=600,
                 width=1200,
                 margin=dict(l=0, r=0, t=100, b=100),
@@ -225,7 +258,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     ]
 )
 def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed):
-    global stop_event, image_queue, flag_for_new_threading, image_thread
+    global stop_event, image_queue, image_thread
 
     ctx = dash.callback_context
 
@@ -236,7 +269,7 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
     
     if button_id == 'start-button':
         stop_event.clear()
-        if flag_for_new_threading:
+        if start_clicks == 1:
             image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed))
             image_thread.start()
         return False  # Enable Interval component
@@ -252,7 +285,6 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
         image_thread.start()
         return False  # Disable Interval component initially
     
-    flag_for_new_threading = False
     return True
 
 
