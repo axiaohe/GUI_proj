@@ -3,7 +3,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import dash
 from dash import dcc, html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import threading
 import time
 import queue
@@ -18,16 +18,20 @@ from variational_distributions.normalizing_flow import (
 image_queue = queue.Queue(maxsize=400)  # Queue to store generated images
 stop_event = threading.Event()  # Event to stop the image generation thread
 last_figure = go.Figure()  # Global variable to store the last figure
+flag_for_new_threading = True  # Global variable to check if a new thread should be started
+image_thread = None
 
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
     html.H1("Variational Inference Visualization"),
+    # dcc.Store(id='', data={'A': 0, 'B': 0, 'C': 0}),
     html.Div([
         dcc.Interval(
             id='interval-component',
-            interval=200,  # 100ms interval for animation effect
-            n_intervals=0
+            interval=250,  # 200ms interval for animation effect
+            n_intervals=0,
+            disabled=True  # Initially disabled
         ),
         html.Label('Model Type:'),
         dcc.Dropdown(
@@ -58,7 +62,9 @@ app.layout = html.Div([
         dcc.Input(id='max-iter', type='number', value=10000000),
         html.Label('Random Seed:'),
         dcc.Input(id='random-seed', type='number', value=2),
-        html.Button('Run', id='run-button', n_clicks=0),
+        html.Button('Start', id='start-button', n_clicks=0),
+        html.Button('Stop', id='stop-button', n_clicks=0),
+        html.Button('Reset', id='reset-button', n_clicks=0),
         dcc.Graph(id='output-graph')
     ])
 ])
@@ -116,7 +122,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     variational_parameters = variational_distribution.initialize_variational_parameters()
 
     iteration_count = 0
-    while not stop_event.is_set() and iteration_count < max_iter:
+    while (not stop_event.is_set()) and iteration_count < max_iter:
         elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
         variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
         
@@ -162,7 +168,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     color='white'
                 ),
                 colorscale='Viridis',
-                colorbar=dict(title='PDF', x=1.05)
+                colorbar=dict(title='PDF', x=1.00)
             ), row=1, col=2)
             
             fig.update_layout(
@@ -202,36 +208,59 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
         
         iteration_count += 1
 
-
 @app.callback(
     Output('interval-component', 'disabled'),
-    [Input('run-button', 'n_clicks')],
     [
-        Input('model-type', 'value'),
-        Input('optimizer-type', 'value'),
-        Input('batch-size', 'value'),
-        Input('learning-rate', 'value'),
-        Input('max-iter', 'value'),
-        Input('random-seed', 'value')
+        Input('start-button', 'n_clicks'),
+        Input('stop-button', 'n_clicks'),
+        Input('reset-button', 'n_clicks')
+    ],
+    [
+        State('model-type', 'value'),
+        State('optimizer-type', 'value'),
+        State('batch-size', 'value'),
+        State('learning-rate', 'value'),
+        State('max-iter', 'value'),
+        State('random-seed', 'value'),
     ]
 )
-def start_stop_image_generation(n_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed):
-    global stop_event, image_queue
+def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed):
+    global stop_event, image_queue, flag_for_new_threading, image_thread
+
+    ctx = dash.callback_context
+
+    if not ctx.triggered:
+        return True
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    if n_clicks:
+    if button_id == 'start-button':
         stop_event.clear()
-        image_queue.queue.clear()
-        threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed)).start()
+        if flag_for_new_threading:
+            image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed))
+            image_thread.start()
         return False  # Enable Interval component
-    stop_event.set()
-    return True  # Disable Interval component
+    elif button_id == 'stop-button':
+        stop_event.set()
+        return True  # Disable Interval component
+    elif button_id == 'reset-button':
+        stop_event.set()
+        image_queue.queue.clear()
+        image_thread.join()
+        stop_event.clear()
+        image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed))
+        image_thread.start()
+        return False  # Disable Interval component initially
+    
+    flag_for_new_threading = False
+    return True
+
 
 @app.callback(
     Output('output-graph', 'figure'),
     [Input('interval-component', 'n_intervals')]
 )
 def update_graph(n_intervals):
-    print(image_queue.qsize())
     global last_figure
     if not image_queue.empty():
         last_figure = image_queue.get()
