@@ -1,29 +1,32 @@
 import numpy as np
-from models import GaussianModel, RezendeModel, RosenbrockModel, ELBOModel
-from stochastic_optimizers import Adam, Adamax, RMSprop, SGD
-from variational_distributions.normalizing_flow import (
-    NormalizingFlowVariational, PlanarLayer, Tanh, LeakyRelu, FullRankNormalLayer,
-    MeanFieldNormalLayer
-)
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output
+import threading
+import time
+import queue
 
-app = dash.Dash(__name__)
+from models import GaussianModel, RezendeModel, RosenbrockModel, ELBOModel
+from stochastic_optimizers import Adam, Adamax, RMSprop, SGD
+from variational_distributions.normalizing_flow import (
+    NormalizingFlowVariational, PlanarLayer, Tanh, LeakyRelu, FullRankNormalLayer,
+    MeanFieldNormalLayer)
 
 # Define global variables
-global_variational_parameters = None
-global_history = None
-global_iteration_count = 0
+image_queue = queue.Queue(maxsize=400)  # Queue to store generated images
+stop_event = threading.Event()  # Event to stop the image generation thread
+last_figure = go.Figure()  # Global variable to store the last figure
+
+app = dash.Dash(__name__)
 
 app.layout = html.Div([
     html.H1("Variational Inference Visualization"),
     html.Div([
         dcc.Interval(
             id='interval-component',
-            interval=0.25*1000,  # 1 second interval
+            interval=200,  # 100ms interval for animation effect
             n_intervals=0
         ),
         html.Label('Model Type:'),
@@ -55,54 +58,13 @@ app.layout = html.Div([
         dcc.Input(id='max-iter', type='number', value=10000000),
         html.Label('Random Seed:'),
         dcc.Input(id='random-seed', type='number', value=2),
-        html.Label('Update Rate:'),
-        dcc.Input(id='update-rate', type='number', value=2),
         html.Button('Run', id='run-button', n_clicks=0),
         dcc.Graph(id='output-graph')
     ])
 ])
 
-# Enable/Disable interval component
-@app.callback(
-    Output('interval-component', 'disabled'),
-    [Input('run-button', 'n_clicks')]
-)
-def enable_interval(n_clicks):
-    if n_clicks:
-        # global global_variational_parameters, global_history
-        # global_variational_parameters = None
-        # global_history = None
-        return False  # Enable Interval component
-    return True  # Disable Interval component
-
-# change the refresh rate of the graph
-@app.callback(
-    Output('interval-component', 'interval'),
-    [Input('update-rate', 'value')]
-)
-def change_refresh_rate(update_rate):
-    return update_rate * 1000
-
-# Update graph callback
-@app.callback(
-    Output('output-graph', 'figure'),
-    [Input('interval-component', 'n_intervals')],
-    [
-        Input('model-type', 'value'),
-        Input('optimizer-type', 'value'),
-        Input('batch-size', 'value'),
-        Input('learning-rate', 'value'),
-        Input('max-iter', 'value'),
-        Input('random-seed', 'value'),
-        Input('update-rate', 'value')
-    ]
-)
-def update_graph(n_intervals, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    fig = generate_figure(n_intervals, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate)
-    return fig
-
-def generate_figure(n_intervals, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global global_variational_parameters, global_history, global_iteration_count
+def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed):
+    global image_queue, stop_event
     
     np.random.seed(random_seed)
     num_dim = 2
@@ -151,92 +113,129 @@ def generate_figure(n_intervals, model_type, optimizer_type, batch_size, learnin
             optimization_type='max'
         )
     
-    if global_variational_parameters is None:
-        global_variational_parameters = variational_distribution.initialize_variational_parameters()
-    if global_history is None:
-        global_history = {'variational_parameters': [], 'elbo': []}
+    variational_parameters = variational_distribution.initialize_variational_parameters()
 
-    print('Iteration', global_iteration_count)
-    for i in range(max_iter):  # Adjust the step count as needed
-        elbo, elbo_gradient = elbo_model.evaluate_and_gradient(global_variational_parameters)
-        global_history['variational_parameters'].append(global_variational_parameters.copy())
-        global_history['elbo'].append(elbo.copy())
-        global_variational_parameters = optimizer.step(global_variational_parameters, elbo_gradient)
+    iteration_count = 0
+    while not stop_event.is_set() and iteration_count < max_iter:
+        elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
+        variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
         
-        global_iteration_count += 1
-        if (i+1) % (update_rate * 20) == 0 or global_iteration_count >= max_iter:
-            break
+        if iteration_count < 100:
+            factor = (iteration_count / 10) + 1
+        else:
+            factor = 10
+        
+        if iteration_count % factor == 0:
+            xlin = np.linspace(-2, 2, 100)
+            ylin = np.linspace(-2, 3, 100)
+            X, Y = np.meshgrid(xlin, ylin)
+            positions = np.vstack([X.ravel(), Y.ravel()]).T
+            samples = variational_distribution.draw(variational_parameters, n_draws=100_000)
             
-    xlin = np.linspace(-2, 2, 100)
-    ylin = np.linspace(-2, 3, 100)
-    X, Y = np.meshgrid(xlin, ylin)
-    positions = np.vstack([X.ravel(), Y.ravel()]).T
-    samples = variational_distribution.draw(global_variational_parameters, n_draws=100_000)
+            true_pdf = np.exp(model.evaluate(positions))
+            
+            fig = make_subplots(rows=1, cols=2, subplot_titles=("Sample Histogram", "True PDF"))
+            
+            fig.add_trace(go.Histogram2d(
+                x=samples[:, 0].flatten(),
+                y=samples[:, 1].flatten(),
+                autobinx=False,
+                autobiny=False,
+                xbins=dict(start=-2, end=2, size=0.04),
+                ybins=dict(start=-2, end=3, size=0.05),
+                colorscale='Viridis',
+                colorbar=dict(title='Density', x=0.45)
+            ), row=1, col=1)
+            
+            fig.add_trace(go.Contour(
+                x=positions[:, 0],
+                y=positions[:, 1],
+                z=true_pdf,
+                contours=dict(
+                    start=0,
+                    end=np.max(true_pdf),
+                    size=0.1 * np.max(true_pdf),
+                    coloring='heatmap'
+                ),
+                line=dict(
+                    smoothing=0.85,
+                    color='white'
+                ),
+                colorscale='Viridis',
+                colorbar=dict(title='PDF', x=1.05)
+            ), row=1, col=2)
+            
+            fig.update_layout(
+                title="Variational Inference Visualization",
+                height=600,
+                width=1200,
+                margin=dict(l=0, r=0, t=100, b=100),
+                autosize=False,
+                xaxis_title="X Axis",
+                yaxis_title="Y Axis",
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                showlegend=False
+            )
+            
+            fig.update_xaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='LightGray',
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor='LightGray'
+            )
+            fig.update_yaxes(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='LightGray',
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor='LightGray'
+            )
 
-    true_pdf = np.exp(model.evaluate(positions))
-    levels = 10
+            if not image_queue.full():
+                image_queue.put(fig)
+            else:
+                time.sleep(0.5)
+        
+        iteration_count += 1
 
-    # Create the first 2D histogram trace
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Sample Histogram", "True PDF"))
+
+@app.callback(
+    Output('interval-component', 'disabled'),
+    [Input('run-button', 'n_clicks')],
+    [
+        Input('model-type', 'value'),
+        Input('optimizer-type', 'value'),
+        Input('batch-size', 'value'),
+        Input('learning-rate', 'value'),
+        Input('max-iter', 'value'),
+        Input('random-seed', 'value')
+    ]
+)
+def start_stop_image_generation(n_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed):
+    global stop_event, image_queue
     
-    fig.add_trace(go.Histogram2d(
-        x=samples[:, 0].flatten(),
-        y=samples[:, 1].flatten(),
-        autobinx=False,
-        autobiny=False,
-        xbins=dict(start=-2, end=2, size=0.04),
-        ybins=dict(start=-2, end=3, size=0.05),
-        colorscale='Viridis',
-        colorbar=dict(title='Density', x=0.45)
-    ), row=1, col=1)
+    if n_clicks:
+        stop_event.clear()
+        image_queue.queue.clear()
+        threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed)).start()
+        return False  # Enable Interval component
+    stop_event.set()
+    return True  # Disable Interval component
 
-    fig.add_trace(go.Contour(
-        x=positions[:, 0],
-        y=positions[:, 1],
-        z=true_pdf,
-        contours=dict(
-            start=0,
-            end=np.max(true_pdf),
-            size=0.1 * np.max(true_pdf),
-            coloring='heatmap'
-        ),
-        line=dict(
-            smoothing=0.85,
-            color='white'
-        ),
-        colorscale='Viridis',
-        colorbar=dict(title='PDF', x=0.95) 
-    ), row=1, col=2)
-    
-    # Update layout to set axis labels, titles, and background color
-    fig.update_layout(
-        title="Variational Inference Visualization",
-        xaxis_title="X Axis",
-        yaxis_title="Y Axis",
-        plot_bgcolor='rgba(0,0,0,0)',  # Set background color to transparent
-        paper_bgcolor='rgba(0,0,0,0)',  # Set paper background color to transparent
-        showlegend=False
-    )
-
-    # Update x and y axes to have the same styling
-    fig.update_xaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='LightGray',
-        zeroline=True,
-        zerolinewidth=1,
-        zerolinecolor='LightGray'
-    )
-    fig.update_yaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='LightGray',
-        zeroline=True,
-        zerolinewidth=1,
-        zerolinecolor='LightGray'
-    )
-    
-    return fig
+@app.callback(
+    Output('output-graph', 'figure'),
+    [Input('interval-component', 'n_intervals')]
+)
+def update_graph(n_intervals):
+    print(image_queue.qsize())
+    global last_figure
+    if not image_queue.empty():
+        last_figure = image_queue.get()
+    return last_figure  # Return the last figure, updated or not
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, port=8050, host='localhost')
