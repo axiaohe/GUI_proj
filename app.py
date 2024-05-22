@@ -15,7 +15,8 @@ from variational_distributions.normalizing_flow import (
     MeanFieldNormalLayer)
 
 # Define global variables
-image_queue = queue.Queue(maxsize=400)  # Queue to store generated images
+queue_size = 400  # Maximum size of the image queue
+image_queue = queue.Queue(maxsize=queue_size)  # Queue to store generated images
 stop_event = threading.Event()  # Event to stop the image generation thread
 last_figure = go.Figure()  # Global variable to store the last figure
 image_thread = None
@@ -160,13 +161,12 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     variational_parameters = variational_distribution.initialize_variational_parameters()
 
     iteration_count = 0
-    while iteration_count < max_iter:
+    while iteration_count <= max_iter:
         if stop_event.is_set() and reset_flag:
             break
         elif stop_event.is_set() and not reset_flag:
             pass
         else:
-            print(iteration_count, image_queue.qsize())
             elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
             variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
             
@@ -247,10 +247,10 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     zerolinewidth=1,
                     zerolinecolor='LightGray'
                 )
-                #TODO: overflows
-                if not image_queue.full():
+                if image_queue.qsize() < queue_size - 1:
                     image_queue.put(fig)
                 else:
+                    image_queue.put(fig)
                     time.sleep(0.5)
             
             iteration_count += 1
