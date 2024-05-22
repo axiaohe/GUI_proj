@@ -39,7 +39,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
         ),
         
         html.Div(style={'display': 'flex', 'justifyContent': 'space-between'}, children=[
-            html.Div(style={'flex': '0 0 15%'}, children=[
+            html.Div(style={'flex': '0 0 18%'}, children=[
                 html.Div([
                     html.Label('Model Type:', style={'margin-right': '10px'}),
                     dcc.Dropdown(
@@ -68,37 +68,77 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
+                    html.Label('Layer:', style={'margin-right': '10px'}),
+                    dcc.Dropdown(
+                        id='layer-type',
+                        options=[
+                            {'label': 'PlanarLayer', 'value': 'PlanarLayer'},
+                            {'label': 'FullRankNormalLayer', 'value': 'FullRankNormalLayer'},
+                            {'label': 'MeanFieldNormalLayer', 'value': 'MeanFieldNormalLayer'}
+                        ],
+                        value='PlanarLayer'
+                    )
+                ], style={'margin-bottom': '10px'}),
+                
+                html.Div([
+                    html.Label('Activation Function:', style={'margin-right': '10px'}),
+                    dcc.Dropdown(
+                        id='activation_function-type',
+                        options=[
+                            {'label': 'Tanh', 'value': 'Tanh'},
+                            {'label': 'LeakyRelu', 'value': 'LeakyRelu'},
+                            {'label': 'None', 'value': 'None'}
+                        ],
+                        value='Tanh'
+                    )
+                ], style={'margin-bottom': '10px'}),
+                
+                html.Div([
+                    html.Button('Add', id='add-button', n_clicks=0, style={'margin-right': '10px'}),
+                    html.Button('Remove', id='remove-button', n_clicks=0, style={'margin-right': '10px'}),
+                ], style={'margin-bottom': '20px'}),
+                
+                html.Div([
+                    dcc.Textarea(
+                        id='textarea-example',
+                        value='Extra layers information: \n',
+                        style={'width': '95%', 'height': 80},
+                    ),
+                    html.Div(id='textarea-example-output', style={'whiteSpace': 'pre-line'})
+                ]),
+                
+                html.Div([
                     html.Label('Batch Size:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='batch-size', type='number', value=8, step=1),
+                        dcc.Input(id='batch-size', type='number', value=8, step=1, style={'width': '200px'}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Learning Rate:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='learning-rate', type='number', value=1e-3, step=0.001),
+                        dcc.Input(id='learning-rate', type='number', value=1e-3, step=0.001, style={'width': '200px'}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Max Iterations:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='max-iter', type='number', value=2000, step=1000),
+                        dcc.Input(id='max-iter', type='number', value=2000, step=1000, style={'width': '200px'}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Random Seed:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='random-seed', type='number', value=2, step=1),
+                        dcc.Input(id='random-seed', type='number', value=2, step=1, style={'width': '200px'}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Update Rate:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='update-rate', type='number', value=10, step=5),
+                        dcc.Input(id='update-rate', type='number', value=10, step=5, style={'width': '200px'}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
@@ -109,7 +149,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 ], style={'margin-bottom': '20px'}),
             ]),
             
-            html.Div(style={'flex': '0 0 85%'}, children=[
+            html.Div(style={'flex': '0 0 82%', 'margin-top': '50px'}, children=[
                 dcc.Graph(id='para_elbo-graph')
             ])
         ]),
@@ -117,7 +157,6 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
         dcc.Graph(id='output-graph')
     ], style={'margin': '0 auto', 'width': '80%', 'max-width': '1200px'})
 ])
-
 
 def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
     global output_figure_queue, stop_event, reset_flag
@@ -280,9 +319,9 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     title="Variational Parameters and Elbo --- Iteration: " + str(iteration_count),
                     title_x=0.5,
                     title_y=1,         
-                    height=500,
-                    width=900,
-                    margin=dict(l=100, r=0, t=50, b=50),
+                    height=600,
+                    width=1000,
+                    margin=dict(l=100, r=0, t=65, b=50),
                     autosize=False,
                     xaxis_title="Different Parameters",
                     yaxis_title="Value of Parameters",
@@ -291,7 +330,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     showlegend=False,
-                    xaxis_range=[0, len(variational_parameters)],
+                    xaxis_range=[0, len(variational_parameters)+1],
                     yaxis_range=[-2, 2],
                     xaxis2_range=[0, max_iter],
                     yaxis2_range=[np.min(elbo_list), np.max(elbo_list)]
@@ -374,7 +413,6 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
         return False  # Disable Interval component initially
     
     return True
-
 
 @app.callback(
     [Output('output-graph', 'figure'),

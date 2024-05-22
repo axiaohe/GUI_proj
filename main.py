@@ -53,7 +53,7 @@ def main(batch_size=8, model_type=GaussianModel(), add_remove_layers=[], optimiz
         elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
         history['variational_parameters'].append(variational_parameters.copy())
         history['elbo'].append(elbo.copy())
-        
+
         variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
 
         ################################################################################
