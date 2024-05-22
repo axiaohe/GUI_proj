@@ -99,12 +99,12 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 ], style={'margin-bottom': '20px'}),
                 
                 html.Div([
+                    html.Label('Extra layers information: ', style={'margin-right': '10px'}),
                     dcc.Textarea(
                         id='textarea-example',
-                        value='Extra layers information: \n',
+                        value=' ',
                         style={'width': '95%', 'height': 80},
-                    ),
-                    html.Div(id='textarea-example-output', style={'whiteSpace': 'pre-line'})
+                    )
                 ]),
                 
                 html.Div([
