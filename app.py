@@ -21,6 +21,9 @@ para_elbo_figure_queue = queue.Queue(maxsize=queue_size)  # Queue to store gener
 last_output_figure = go.Figure()  # Global variable to store the last figure
 last_para_elbo_figure = go.Figure()  # Global variable to store the last figure
 
+extra_layers = []
+extra_layers_info = []
+
 image_thread = None
 stop_event = threading.Event()  # Event to stop the image generation thread
 reset_flag = False
@@ -39,7 +42,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
         ),
         
         html.Div(style={'display': 'flex', 'justifyContent': 'space-between'}, children=[
-            html.Div(style={'flex': '0 0 18%'}, children=[
+            html.Div(style={'flex': '0 0 20%'}, children=[
                 html.Div([
                     html.Label('Model Type:', style={'margin-right': '10px'}),
                     dcc.Dropdown(
@@ -89,7 +92,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                             {'label': 'LeakyRelu', 'value': 'LeakyRelu'},
                             {'label': 'None', 'value': 'None'}
                         ],
-                        value='Tanh'
+                        value='Tanh',
                     )
                 ], style={'margin-bottom': '10px'}),
                 
@@ -101,44 +104,46 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 html.Div([
                     html.Label('Extra layers information: ', style={'margin-right': '10px'}),
                     dcc.Textarea(
-                        id='textarea-example',
+                        id='layers-info',
                         value=' ',
                         style={'width': '95%', 'height': 80},
                     )
                 ]),
-                
+            ]),
+            
+            html.Div(style={'flex': '0 0 20%', 'margin-left': '50px'}, children=[
                 html.Div([
                     html.Label('Batch Size:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='batch-size', type='number', value=8, step=1, style={'width': '200px'}),
+                        dcc.Input(id='batch-size', type='number', value=8, step=1, style={'width': '200px', 'height': 30}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Learning Rate:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='learning-rate', type='number', value=1e-3, step=0.001, style={'width': '200px'}),
+                        dcc.Input(id='learning-rate', type='number', value=1e-3, step=0.001, style={'width': '200px', 'height': 30}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Max Iterations:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='max-iter', type='number', value=2000, step=1000, style={'width': '200px'}),
+                        dcc.Input(id='max-iter', type='number', value=2000, step=1000, style={'width': '200px', 'height': 30}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Random Seed:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='random-seed', type='number', value=2, step=1, style={'width': '200px'}),
+                        dcc.Input(id='random-seed', type='number', value=2, step=1, style={'width': '200px', 'height': 30}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
                     html.Label('Update Rate:', style={'margin-right': '10px'}),
                     html.Div([
-                        dcc.Input(id='update-rate', type='number', value=10, step=5, style={'width': '200px'}),
+                        dcc.Input(id='update-rate', type='number', value=10, step=5, style={'width': '200px', 'height': 30}),
                     ])
                 ], style={'margin-bottom': '10px'}),
                 
@@ -149,7 +154,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 ], style={'margin-bottom': '20px'}),
             ]),
             
-            html.Div(style={'flex': '0 0 82%', 'margin-top': '50px'}, children=[
+            html.Div(style={'flex': '0 0 60%', 'margin-top': '25px'}, children=[
                 dcc.Graph(id='para_elbo-graph')
             ])
         ]),
@@ -159,7 +164,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
 ])
 
 def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global output_figure_queue, stop_event, reset_flag
+    global output_figure_queue, para_elbo_figure_queue, extra_layers, stop_event, reset_flag
     
     np.random.seed(random_seed)
     num_dim = 2
@@ -171,6 +176,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
         PlanarLayer(num_dim, LeakyRelu()),
     ]
     layers += [PlanarLayer(num_dim, Tanh()) for _ in range(12)]
+    layers.extend(extra_layers)
 
     variational_distribution = NormalizingFlowVariational(layers=layers)
     
@@ -274,7 +280,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                 fig_output.update_layout(
                     title="Variational Inference Visualization --- Iteration: " + str(iteration_count),
                     title_x=0.5,
-                    title_y=0.9,  # 根据需要调整此值以控制标题在垂直方向上的位置        
+                    title_y=0.95,  # 根据需要调整此值以控制标题在垂直方向上的位置        
                     height=600,
                     width=1200,
                     margin=dict(l=0, r=0, t=100, b=100),
@@ -318,10 +324,10 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                 fig_para_elbo.update_layout(
                     title="Variational Parameters and Elbo --- Iteration: " + str(iteration_count),
                     title_x=0.5,
-                    title_y=1,         
-                    height=600,
-                    width=1000,
-                    margin=dict(l=100, r=0, t=65, b=50),
+                    title_y=0.95,         
+                    height=300,
+                    width=700,
+                    margin=dict(l=50, r=0, t=75, b=50),
                     autosize=False,
                     xaxis_title="Different Parameters",
                     yaxis_title="Value of Parameters",
@@ -381,7 +387,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     ]
 )
 def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global stop_event, output_figure_queue, image_thread, reset_flag
+    global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag
 
     ctx = dash.callback_context
 
@@ -404,12 +410,14 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
     elif button_id == 'reset-button' and (start_clicks != 0):
         reset_flag = True
         stop_event.set()
+        image_thread.join()
         output_figure_queue.queue.clear()
         para_elbo_figure_queue.queue.clear()
-        image_thread.join()
         stop_event.clear()
         image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
         image_thread.start()
+        # extra_layers = []
+        # extra_layers_info = []
         return False  # Disable Interval component initially
     
     return True
@@ -420,12 +428,68 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
     [Input('interval-component', 'n_intervals')]
 )
 def update_graph(n_intervals):
-    global last_output_figure, last_para_elbo_figure, output_figure_queue, para_elbo_figure_queue
+    global last_output_figure, last_para_elbo_figure, extra_layers, output_figure_queue, para_elbo_figure_queue
     if not output_figure_queue.empty():
         last_output_figure = output_figure_queue.get()
     if not para_elbo_figure_queue.empty():
         last_para_elbo_figure = para_elbo_figure_queue.get()
     return last_output_figure, last_para_elbo_figure  # Return the last figure, updated or not
+
+@app.callback(
+    Output('layers-info', 'value'),
+    [
+        Input('add-button', 'n_clicks'),
+        Input('remove-button', 'n_clicks'),
+    ],
+    [
+        State('layer-type', 'value'),
+        State('activation_function-type', 'value'),
+    ]
+)
+def update_extra_layers(add_clicks, remove_clicks, layer_type, activation_function_type):
+    global extra_layers, extra_layers_info
+    num_dim = 2
+    warning_text = '---Try another combination!---'
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return ', '.join(map(str, extra_layers))
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if button_id == 'add-button':
+        # Layer options: PlanarLayer Tanh, PlanarLayer LeakyRelu, FullRankNormalLayer, MeanFieldNormalLayer
+        if layer_type == 'PlanarLayer' and activation_function_type == 'Tanh':
+            if warning_text in extra_layers_info:
+                extra_layers_info.remove(warning_text)
+            extra_layers.append(PlanarLayer(num_dim, Tanh()))
+            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'PlanarLayer Tanh')
+        elif layer_type == 'PlanarLayer' and activation_function_type == 'LeakyRelu':
+            if warning_text in extra_layers_info:
+                extra_layers_info.remove(warning_text)
+            extra_layers.append(PlanarLayer(num_dim, LeakyRelu()))
+            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'PlanarLayer LeakyRelu')
+        elif layer_type == 'FullRankNormalLayer' and activation_function_type == 'None':
+            if warning_text in extra_layers_info:
+                extra_layers_info.remove(warning_text)
+            extra_layers.append(FullRankNormalLayer(num_dim))
+            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'FullRankNormalLayer')
+        elif layer_type == 'MeanFieldNormalLayer' and activation_function_type == 'None':
+            if warning_text in extra_layers_info:
+                extra_layers_info.remove(warning_text)
+            extra_layers.append(MeanFieldNormalLayer(num_dim))
+            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'MeanFieldNormalLayer')
+        elif warning_text not in extra_layers_info:
+                extra_layers_info.append(warning_text)
+        else:
+            pass
+
+    elif button_id == 'remove-button':
+        extra_layers.pop()
+        if 'Please choose the right combination!' in extra_layers_info:
+            extra_layers_info.pop()
+        extra_layers_info.pop()
+        
+    return '\n'.join(map(str, extra_layers_info))
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050, host='localhost')
