@@ -42,7 +42,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
         ),
         
         html.Div(style={'display': 'flex', 'justifyContent': 'space-between'}, children=[
-            html.Div(style={'flex': '0 0 20%'}, children=[
+            html.Div(style={'flex': '0 0 22%'}, children=[
                 html.Div([
                     html.Label('Model Type:', style={'margin-right': '10px'}),
                     dcc.Dropdown(
@@ -96,10 +96,16 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                     )
                 ], style={'margin-bottom': '10px'}),
                 
-                html.Div([
-                    html.Button('Add', id='add-button', n_clicks=0, style={'margin-right': '10px'}),
-                    html.Button('Remove', id='remove-button', n_clicks=0, style={'margin-right': '10px'}),
-                ], style={'margin-bottom': '20px'}),
+                html.Div(style={'display': 'flex', 'justifyContent': 'space-between'}, children=[
+                    html.Div(style={'flex': '0 0 50%', 'display': 'flex', 'justifyContent': 'space-between'}, children=[
+                        html.Button('Add', id='add-button', n_clicks=0, style={'margin-right': '10px'}),
+                        html.Button('Remove', id='remove-button', n_clicks=0, style={'margin-right': '10px'}),
+                    ]),
+                    html.Div(style={'flex': '0 0 50%', 'display': 'flex', 'alignItems': 'center'}, children=[
+                        dcc.Input(id='n_th-layer', type='number', value=None, step=1, style={'width': '30px', 'margin-right': '5px', 'margin-left': '10px'}),
+                        html.Label('-th layer', style={'margin-bottom': '0'}),
+                    ]),
+                ]),
                 
                 html.Div([
                     html.Label('Extra layers information: ', style={'margin-right': '10px'}),
@@ -154,7 +160,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 ], style={'margin-bottom': '20px'}),
             ]),
             
-            html.Div(style={'flex': '0 0 60%', 'margin-top': '25px'}, children=[
+            html.Div(style={'flex': '0 0 58%', 'margin-top': '25px'}, children=[
                 dcc.Graph(id='para_elbo-graph')
             ])
         ]),
@@ -178,6 +184,8 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     layers += [PlanarLayer(num_dim, Tanh()) for _ in range(12)]
     layers.extend(extra_layers)
 
+    print(extra_layers)
+    
     variational_distribution = NormalizingFlowVariational(layers=layers)
     
     if model_type == 'GaussianModel':
@@ -444,52 +452,61 @@ def update_graph(n_intervals):
     [
         State('layer-type', 'value'),
         State('activation_function-type', 'value'),
+        State('n_th-layer', 'value')
     ]
 )
-def update_extra_layers(add_clicks, remove_clicks, layer_type, activation_function_type):
+def update_extra_layers(add_clicks, remove_clicks, layer_type, activation_function_type, n_th_layer):
     global extra_layers, extra_layers_info
     num_dim = 2
     warning_text = '---Try another combination!---'
-    
+
     ctx = dash.callback_context
-    if not ctx.triggered:
-        return ', '.join(map(str, extra_layers))
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
+
+    def update_layer_info():
+        """Update the numbering in the extra_layers_info list."""
+        return [f"{i + 1}. {info.split('. ', 1)[1]}" for i, info in enumerate(extra_layers_info)]
+
     if button_id == 'add-button':
+        new_layer = None
+        new_layer_info = None
         # Layer options: PlanarLayer Tanh, PlanarLayer LeakyRelu, FullRankNormalLayer, MeanFieldNormalLayer
         if layer_type == 'PlanarLayer' and activation_function_type == 'Tanh':
-            if warning_text in extra_layers_info:
-                extra_layers_info.remove(warning_text)
-            extra_layers.append(PlanarLayer(num_dim, Tanh()))
-            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'PlanarLayer Tanh')
+            new_layer = PlanarLayer(num_dim, Tanh())
+            new_layer_info = 'PlanarLayer Tanh'
         elif layer_type == 'PlanarLayer' and activation_function_type == 'LeakyRelu':
-            if warning_text in extra_layers_info:
-                extra_layers_info.remove(warning_text)
-            extra_layers.append(PlanarLayer(num_dim, LeakyRelu()))
-            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'PlanarLayer LeakyRelu')
+            new_layer = PlanarLayer(num_dim, LeakyRelu())
+            new_layer_info = 'PlanarLayer LeakyRelu'
         elif layer_type == 'FullRankNormalLayer' and activation_function_type == 'None':
-            if warning_text in extra_layers_info:
-                extra_layers_info.remove(warning_text)
-            extra_layers.append(FullRankNormalLayer(num_dim))
-            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'FullRankNormalLayer')
+            new_layer = FullRankNormalLayer(num_dim)
+            new_layer_info = 'FullRankNormalLayer'
         elif layer_type == 'MeanFieldNormalLayer' and activation_function_type == 'None':
+            new_layer = MeanFieldNormalLayer(num_dim)
+            new_layer_info = 'MeanFieldNormalLayer'
+
+        if new_layer and new_layer_info:
             if warning_text in extra_layers_info:
                 extra_layers_info.remove(warning_text)
-            extra_layers.append(MeanFieldNormalLayer(num_dim))
-            extra_layers_info.append(str(len(extra_layers_info)+1)+'. '+'MeanFieldNormalLayer')
+            index = n_th_layer - 1 if n_th_layer is not None else len(extra_layers)
+            index = max(0, min(index, len(extra_layers)))  # Ensure index is within bounds
+            extra_layers.insert(index, new_layer)
+            extra_layers_info.insert(index, f"{index + 1}. {new_layer_info}")
+            extra_layers_info = update_layer_info()  # Update the numbering
         elif warning_text not in extra_layers_info:
-                extra_layers_info.append(warning_text)
-        else:
-            pass
+            extra_layers_info.append(warning_text)
 
     elif button_id == 'remove-button':
-        extra_layers.pop()
-        if 'Please choose the right combination!' in extra_layers_info:
-            extra_layers_info.pop()
-        extra_layers_info.pop()
-        
+        if warning_text in extra_layers_info:
+            extra_layers_info.remove(warning_text)
+        if extra_layers:
+            index = n_th_layer - 1 if n_th_layer is not None else len(extra_layers)
+            index = max(0, min(index, len(extra_layers)-1))  # Ensure index is within bounds
+            extra_layers.pop(index)
+            extra_layers_info.pop(index)
+            extra_layers_info = update_layer_info()  # Update the numbering
+    
     return '\n'.join(map(str, extra_layers_info))
+
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050, host='localhost')
