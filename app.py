@@ -18,8 +18,6 @@ from variational_distributions.normalizing_flow import (
 queue_size = 400  # Maximum size of the image queue
 output_figure_queue = queue.Queue(maxsize=queue_size)  # Queue to store generated images
 para_elbo_figure_queue = queue.Queue(maxsize=queue_size)  # Queue to store generated images
-last_output_figure = go.Figure()  # Global variable to store the last figure
-last_para_elbo_figure = go.Figure()  # Global variable to store the last figure
 
 extra_layers = []
 extra_layers_info = []
@@ -28,12 +26,181 @@ image_thread = None
 stop_event = threading.Event()  # Event to stop the image generation thread
 reset_flag = False
 
+init_figure_flag = True
+def create_default_figure(model_type, optimizer_type, learning_rate, batch_size, max_iter, random_seed):
+    np.random.seed(random_seed)
+    num_dim = 2
+    
+    layers = [
+        MeanFieldNormalLayer(num_dim),
+        PlanarLayer(num_dim, Tanh()),
+        FullRankNormalLayer(num_dim),
+        PlanarLayer(num_dim, LeakyRelu()),
+    ]
+    layers += [PlanarLayer(num_dim, Tanh()) for _ in range(12)]
+    layers.extend(extra_layers)
+    
+    variational_distribution = NormalizingFlowVariational(layers=layers)
+    
+    if model_type == 'GaussianModel':
+        model = GaussianModel() 
+    elif model_type == 'RezendeModel':
+        model = RezendeModel()
+    else:
+        model = RosenbrockModel()
+        
+    elbo_model = ELBOModel(
+        model=model,
+        variational_distribution=variational_distribution,
+        n_samples_per_iter=batch_size
+    )
+    
+    if optimizer_type == 'Adam':
+        optimizer = Adam(
+            learning_rate=learning_rate,
+            optimization_type='max'
+        )
+    elif optimizer_type == 'Adamax':
+        optimizer = Adamax(
+            learning_rate=learning_rate,
+            optimization_type='max'
+        )
+    elif optimizer_type == 'RMSprop':
+        optimizer = RMSprop(
+            learning_rate=learning_rate,
+            optimization_type='max'
+        )
+    else:
+        optimizer = SGD(
+            learning_rate=learning_rate,
+            optimization_type='max'
+        )
+    
+    variational_parameters = variational_distribution.initialize_variational_parameters()
+
+    xlin = np.linspace(-2, 2, 100)
+    ylin = np.linspace(-2, 3, 100)
+    X, Y = np.meshgrid(xlin, ylin)
+    positions = np.vstack([X.ravel(), Y.ravel()]).T
+    samples = variational_distribution.draw(variational_parameters, n_draws=100_000)
+    
+    true_pdf = np.exp(model.evaluate(positions))
+
+    fig_output = make_subplots(rows=1, cols=2, subplot_titles=("Normalizing Flow PDF", "True PDF"))
+    
+    fig_output.add_trace(go.Histogram2d(
+        x=samples[:, 0].flatten(),
+        y=samples[:, 1].flatten(),
+        autobinx=False,
+        autobiny=False,
+        xbins=dict(start=-2, end=2, size=0.04),
+        ybins=dict(start=-2, end=3, size=0.05),
+        colorscale='Viridis',
+        colorbar=dict(title='Density', x=0.4)
+    ), row=1, col=1)
+    
+    fig_output.add_trace(go.Contour(
+        x=positions[:, 0],
+        y=positions[:, 1],
+        z=true_pdf,
+        contours=dict(
+            start=0,
+            end=np.max(true_pdf),
+            size=0.1 * np.max(true_pdf),
+            coloring='heatmap'
+        ),
+        line=dict(
+            smoothing=0.85,
+            color='white'
+        ),
+        colorscale='Viridis',
+        colorbar=dict(title='PDF', x=1.00)
+    ), row=1, col=2)
+    
+    fig_output.update_layout(
+        title="Variational Inference Visualization --- Iteration: 0",
+        title_x=0.5,
+        title_y=0.95,
+        height=600,
+        width=1200,
+        margin=dict(l=0, r=0, t=100, b=100),
+        autosize=False,
+        xaxis_title="X Axis",
+        yaxis_title="Y Axis",
+        xaxis2_title="X Axis",
+        yaxis2_title="Y Axis",
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        showlegend=False,
+        xaxis=dict(domain=[0, 0.4]),  
+        yaxis=dict(domain=[0, 1]),    
+        xaxis2=dict(domain=[0.6, 1]), 
+        yaxis2=dict(domain=[0, 1])    
+    )
+
+    fig_para_elbo = make_subplots(rows=1, cols=2, subplot_titles=("Variational Parameters --- Mean: {:.5f}".format(np.mean(variational_parameters)), "Elbo --- Absolute Value: {:.2f}".format(0)))
+
+    fig_para_elbo.add_trace(go.Scatter(
+        x=np.arange(len(variational_parameters)),
+        y=np.array(variational_parameters),
+        mode='markers',
+        line=dict(color='orange', width=2)
+    ), row=1, col=1)
+    
+    fig_para_elbo.add_trace(go.Scatter(
+        # x=np.arange(len(elbo_list)),
+        # y=np.array(elbo_list),
+        mode='lines',
+        line=dict(color='blue', width=2)
+    ), row=1, col=2)
+    
+    fig_para_elbo.update_layout(
+        title="Variational Parameters and Elbo --- Iteration: 0",
+        title_x=0.5,
+        title_y=0.95,         
+        height=300,
+        width=700,
+        margin=dict(l=50, r=0, t=75, b=50),
+        autosize=False,
+        xaxis_title="Different Parameters",
+        yaxis_title="Value of Parameters",
+        xaxis2_title="Iteration",
+        yaxis2_title="Elbo Value",
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        showlegend=False,
+        xaxis_range=[0, len(variational_parameters)+1],
+        yaxis_range=[-2, 2],
+        xaxis2_range=[0, max_iter],
+        # yaxis2_range=[np.min(elbo_list), np.max(elbo_list)]
+    )
+    
+    fig_para_elbo.update_xaxes(
+        showgrid=False,
+        gridwidth=1,
+        gridcolor='LightGray',
+        zeroline=True,
+        zerolinewidth=1,
+        zerolinecolor='LightGray'
+    )
+    fig_para_elbo.update_yaxes(
+        showgrid=False,
+        gridwidth=1,
+        gridcolor='LightGray',
+        zeroline=True,
+        zerolinewidth=1,
+        zerolinecolor='LightGray'
+    )
+    
+    return fig_output, fig_para_elbo
+
 app = dash.Dash(__name__)
 
 app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
     html.H1("Variational Inference Visualization", style={'textAlign': 'center'}),
     
-    html.Div([
+    html.Div([        
+        # Use this Interval component to update the graph every 250ms
         dcc.Interval(
             id='interval-component',
             interval=250,
@@ -41,6 +208,15 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
             disabled=True
         ),
         
+        # Add this div to trigger the initial callback
+        dcc.Interval(
+            id='init-interval',
+            interval=1,
+            n_intervals=0,
+            max_intervals=1
+        ),
+        
+        # Main content
         html.Div(style={'display': 'flex', 'justifyContent': 'space-between'}, children=[
             html.Div(style={'flex': '0 0 22%'}, children=[
                 html.Div([
@@ -171,7 +347,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
 
 def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
     global output_figure_queue, para_elbo_figure_queue, extra_layers, stop_event, reset_flag
-    
+
     np.random.seed(random_seed)
     num_dim = 2
 
@@ -183,8 +359,6 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     ]
     layers += [PlanarLayer(num_dim, Tanh()) for _ in range(12)]
     layers.extend(extra_layers)
-
-    print(extra_layers)
     
     variational_distribution = NormalizingFlowVariational(layers=layers)
     
@@ -221,7 +395,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
             learning_rate=learning_rate,
             optimization_type='max'
         )
-    
+
     variational_parameters = variational_distribution.initialize_variational_parameters()
 
     iteration_count = 0
@@ -233,12 +407,13 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
         elif stop_event.is_set() and not reset_flag:
             pass
         else:
+
             elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
             variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
-            
+
             elbo_list.append(elbo)
             variational_parameters_list.append(variational_parameters[0].item())
-            
+
             # if iteration_count < update_rate * 10:
             #     factor = int(iteration_count / 10) + 1
             # else:
@@ -288,7 +463,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                 fig_output.update_layout(
                     title="Variational Inference Visualization --- Iteration: " + str(iteration_count),
                     title_x=0.5,
-                    title_y=0.95,  # 根据需要调整此值以控制标题在垂直方向上的位置        
+                    title_y=0.95,
                     height=600,
                     width=1200,
                     margin=dict(l=0, r=0, t=100, b=100),
@@ -395,14 +570,10 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     ]
 )
 def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag
-
+    global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag, init_figure_flag
+    
     ctx = dash.callback_context
-
-    if not ctx.triggered:
-        return True
-
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0] 
 
     if button_id == 'start-button':
         reset_flag = False
@@ -414,34 +585,53 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
     elif button_id == 'stop-button':
         reset_flag = False
         stop_event.set()
-        return True  # Disable Interval component
     elif button_id == 'reset-button' and (start_clicks != 0):
+        print('reset')
+        init_figure_flag = True
         reset_flag = True
         stop_event.set()
         image_thread.join()
-        output_figure_queue.queue.clear()
-        para_elbo_figure_queue.queue.clear()
         stop_event.clear()
         image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
         image_thread.start()
-        # extra_layers = []
-        # extra_layers_info = []
-        return False  # Disable Interval component initially
-    
+        stop_event.set()
+        output_figure_queue.queue.clear()
+        para_elbo_figure_queue.queue.clear()
+        print("product figure: {}".format(output_figure_queue.qsize()))
+        print('reset done')
+        
+    if init_figure_flag == True:
+        last_output_figure, last_para_elbo_figure= create_default_figure(model_type, optimizer_type, learning_rate, batch_size, max_iter, random_seed)
+        output_figure_queue.put(last_output_figure)
+        para_elbo_figure_queue.put(last_para_elbo_figure)
+        print("product init figure: {}".format(output_figure_queue.qsize()))
+        time.sleep(2)
+        print('waiting end')
+        
     return True
 
 @app.callback(
     [Output('output-graph', 'figure'),
      Output('para_elbo-graph', 'figure')],
-    [Input('interval-component', 'n_intervals')]
+    [Input('interval-component', 'n_intervals'),
+     Input('reset-button', 'n_clicks')],
 )
-def update_graph(n_intervals):
-    global last_output_figure, last_para_elbo_figure, extra_layers, output_figure_queue, para_elbo_figure_queue
-    if not output_figure_queue.empty():
+def update_graph(n_intervals, reset_clicks):
+    global output_figure_queue, para_elbo_figure_queue, init_figure_flag
+    
+    print('            ' + str(init_figure_flag))
+    if init_figure_flag:
+        print("            waiting")
+        time.sleep(2)
+    if (not output_figure_queue.empty()) and (not para_elbo_figure_queue.empty()):
         last_output_figure = output_figure_queue.get()
-    if not para_elbo_figure_queue.empty():
         last_para_elbo_figure = para_elbo_figure_queue.get()
-    return last_output_figure, last_para_elbo_figure  # Return the last figure, updated or not
+        init_figure_flag = False
+        print("            update graph1", para_elbo_figure_queue.qsize())
+        return last_output_figure, last_para_elbo_figure  # Return the last figure, updated or not
+    else:
+        print("            update graph2", para_elbo_figure_queue.qsize())
+        return dash.no_update, dash.no_update  # No update if the queue is empty
 
 @app.callback(
     Output('layers-info', 'value'),
@@ -506,7 +696,6 @@ def update_extra_layers(add_clicks, remove_clicks, layer_type, activation_functi
             extra_layers_info = update_layer_info()  # Update the numbering
     
     return '\n'.join(map(str, extra_layers_info))
-
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050, host='localhost')
