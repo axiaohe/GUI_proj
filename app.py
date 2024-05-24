@@ -32,6 +32,7 @@ image_thread = None
 stop_event = threading.Event()  # Event to stop the image generation thread
 reset_flag = False
 init_figure_flag = True
+init_finished = False
 
 app = dash.Dash(__name__)
 
@@ -119,7 +120,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                         value=' ',
                         style={'width': '95%', 'height': 80},
                     )
-                ]),
+                ], style={'margin-top': '5px'}),
             ]),
             
             html.Div(style={'flex': '0 0 20%', 'margin-left': '50px'}, children=[
@@ -159,6 +160,10 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
                 ], style={'margin-bottom': '10px'}),
                 
                 html.Div([
+                    html.Label('Initializing, please wait!', id='init_status-label', style={'margin-right': '10px'}),
+                ], style={'margin-bottom': '10px', 'margin-top': '20px'}),
+                
+                html.Div([
                     html.Button('Start', id='start-button', n_clicks=0, style={'margin-right': '10px'}),
                     html.Button('Stop', id='stop-button', n_clicks=0, style={'margin-right': '10px'}),
                     html.Button('Reset', id='reset-button', n_clicks=0)
@@ -175,7 +180,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
 ])
 
 def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global output_figure_queue, para_elbo_figure_queue, extra_layers, stop_event, reset_flag, init_figure_flag
+    global output_figure_queue, para_elbo_figure_queue, extra_layers, stop_event, reset_flag, init_figure_flag, init_finished
     
     np.random.seed(random_seed)
     num_dim = 2
@@ -233,9 +238,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     variational_parameters_list = []
     while iteration_count <= max_iter:
         if (not stop_event.is_set()) or init_figure_flag:
-            #TODO: start faster
             if not init_figure_flag:
-                print(1)
                 elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
                 variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
                 
@@ -380,9 +383,14 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     time.sleep(0.5)
 
             # start faster, prevent the first iteration from being skipped
+            if init_figure_flag:
+                init_finished = False
             elbo_model.evaluate_and_gradient(variational_parameters)
+            if init_figure_flag:
+                init_finished = True
             
             iteration_count += 1
+            #TODO: fewer computation consumption
             while True:
                 if init_figure_flag and not reset_flag:
                     iteration_count = 0
@@ -520,6 +528,14 @@ def update_extra_layers(add_clicks, remove_clicks, layer_type, activation_functi
     
     return '\n'.join(map(str, extra_layers_info))
 
+@app.callback(
+    Output('init_status-label', 'children'),
+    [Input('interval-component', 'n_intervals')]
+)
+def update_status_label(n_intervals):
+    global init_finished
+    print(1)
+    return 'You can start now!' if init_finished else 'Initializing, please wait!'
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050, host='localhost')
