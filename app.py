@@ -7,12 +7,16 @@ from dash.dependencies import Input, Output, State
 import threading
 import time
 import queue
+import random
 
 from models import GaussianModel, RezendeModel, RosenbrockModel, ELBOModel
 from stochastic_optimizers import Adam, Adamax, RMSprop, SGD
 from variational_distributions.normalizing_flow import (
     NormalizingFlowVariational, PlanarLayer, Tanh, LeakyRelu, FullRankNormalLayer,
     MeanFieldNormalLayer)
+
+# create a lock
+lock = threading.Lock()
 
 # Define global variables
 queue_size = 400  # Maximum size of the image queue
@@ -227,12 +231,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     elbo_list = []
     variational_parameters_list = []
     while iteration_count <= max_iter:
-        if stop_event.is_set():
-            if reset_flag:
-                break
-            else:
-                pass
-        else:
+        if (not stop_event.is_set()) or init_figure_flag:
             #TODO: start faster
             if init_figure_flag:
                 elbo = 0
@@ -382,11 +381,16 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
 
             iteration_count += 1
             while True:
-                if init_figure_flag:
+                if init_figure_flag and not reset_flag:
                     iteration_count = 0
                 else:
                     break; 
-
+                
+        else: 
+            if reset_flag:
+                break
+            else:
+                pass
 @app.callback(
     Output('interval-component', 'disabled'),
     [
@@ -410,30 +414,30 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
     ctx = dash.callback_context
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    if button_id == 'start-button':
+    with lock:
+        if button_id == 'start-button':
+            if init_figure_flag:
+                init_figure_flag = False
+                output_figure_queue.queue.clear()
+                para_elbo_figure_queue.queue.clear()
+            stop_event.clear()
+        elif button_id == 'stop-button':
+            stop_event.set()
+            return True  # Disable Interval component
+        elif button_id == 'reset-button' and (start_clicks != 0):
+                stop_event.set()
+                init_figure_flag = False
+                reset_flag = True
+                image_thread.join()
+                output_figure_queue.queue.clear()
+                para_elbo_figure_queue.queue.clear()
+                stop_event.clear()
+                init_figure_flag = True
+    
         reset_flag = False
         if init_figure_flag:
-            init_figure_flag = False
-            output_figure_queue.queue.clear()
-            para_elbo_figure_queue.queue.clear()
-        stop_event.clear()
-    elif button_id == 'stop-button':
-        reset_flag = False
-        stop_event.set()
-        return True  # Disable Interval component
-    elif button_id == 'reset-button' and (start_clicks != 0):
-        reset_flag = True
-        stop_event.set()
-        image_thread.join()
-        output_figure_queue.queue.clear()
-        para_elbo_figure_queue.queue.clear()
-        stop_event.clear()
-        init_figure_flag = True
-    
-    if init_figure_flag:
-        #TODO: Synchronization
-        image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
-        image_thread.start()
+            image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
+            image_thread.start()
         
     return False
 
