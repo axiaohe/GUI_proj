@@ -330,11 +330,9 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     line=dict(color='blue', width=2)
                 ), row=1, col=2)
                 
-                if init_figure_flag:
-                    yaxis2_range = [-25, 2]
-                else:
-                    if elbo_list:
-                        yaxis2_range = [np.min(elbo_list), np.max(elbo_list)]
+                yaxis2_range = [-25, 2]
+                if elbo_list:
+                    yaxis2_range = [np.min(elbo_list), np.max(elbo_list)]
         
                 fig_para_elbo.update_layout(
                     title="Variational Parameters and Elbo --- Iteration: " + str(0 if init_figure_flag else iteration_count),
@@ -353,7 +351,8 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     showlegend=False,
                     xaxis_range=[0, 80 if init_figure_flag else len(variational_parameters)+1],
                     yaxis_range=[-2, 2],
-                    xaxis2_range=[0, max_iter],
+                    xaxis2_range=[0, iteration_count],
+                    # xaxis2_range=[0, max_iter],
                     yaxis2_range=yaxis2_range
                 )
                 
@@ -394,12 +393,14 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
             while True:
                 if init_figure_flag and not reset_flag:
                     iteration_count = 0
+                    time.sleep(0.1)
                 else:
                     break; 
         else: 
             if reset_flag:
                 break
             else:
+                time.sleep(0.1)
                 pass
 @app.callback(
     Output('interval-component', 'disabled'),
@@ -445,7 +446,9 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
                 init_figure_flag = True
     
         reset_flag = False
-        if init_figure_flag:
+        if image_thread is not None and image_thread.is_alive() and not init_finished:
+            init_figure_flag = True
+        elif (init_figure_flag and image_thread is None) or (init_figure_flag and not image_thread.is_alive()):
             image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
             image_thread.start()
         
@@ -534,7 +537,6 @@ def update_extra_layers(add_clicks, remove_clicks, layer_type, activation_functi
 )
 def update_status_label(n_intervals):
     global init_finished
-    print(1)
     return 'You can start now!' if init_finished else 'Initializing, please wait!'
 
 if __name__ == '__main__':
