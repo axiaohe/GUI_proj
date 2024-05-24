@@ -228,20 +228,20 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     variational_parameters = variational_distribution.initialize_variational_parameters()
 
     iteration_count = 0
+    elbo = 0
     elbo_list = []
     variational_parameters_list = []
     while iteration_count <= max_iter:
         if (not stop_event.is_set()) or init_figure_flag:
             #TODO: start faster
-            if init_figure_flag:
-                elbo = 0
-            else:
+            if not init_figure_flag:
+                print(1)
                 elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
                 variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
                 
                 elbo_list.append(elbo)
                 variational_parameters_list.append(variational_parameters[0].item())
-            
+                
             if iteration_count % update_rate == 0:
                 xlin = np.linspace(-2, 2, 100)
                 ylin = np.linspace(-2, 3, 100)
@@ -379,13 +379,15 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     para_elbo_figure_queue.put(fig_para_elbo)
                     time.sleep(0.5)
 
+            # start faster, prevent the first iteration from being skipped
+            elbo_model.evaluate_and_gradient(variational_parameters)
+            
             iteration_count += 1
             while True:
                 if init_figure_flag and not reset_flag:
                     iteration_count = 0
                 else:
                     break; 
-                
         else: 
             if reset_flag:
                 break
