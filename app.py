@@ -27,6 +27,7 @@ extra_layers_info = []
 image_thread = None
 stop_event = threading.Event()  # Event to stop the image generation thread
 reset_flag = False
+init_figure_flag = True
 
 app = dash.Dash(__name__)
 
@@ -170,7 +171,7 @@ app.layout = html.Div(style={'backgroundColor': '#ffffff'}, children=[
 ])
 
 def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global output_figure_queue, para_elbo_figure_queue, extra_layers, stop_event, reset_flag
+    global output_figure_queue, para_elbo_figure_queue, extra_layers, stop_event, reset_flag, init_figure_flag
     
     np.random.seed(random_seed)
     num_dim = 2
@@ -183,8 +184,6 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     ]
     layers += [PlanarLayer(num_dim, Tanh()) for _ in range(12)]
     layers.extend(extra_layers)
-
-    print(extra_layers)
     
     variational_distribution = NormalizingFlowVariational(layers=layers)
     
@@ -228,21 +227,21 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     elbo_list = []
     variational_parameters_list = []
     while iteration_count <= max_iter:
-        if stop_event.is_set() and reset_flag:
-            break
-        elif stop_event.is_set() and not reset_flag:
-            pass
+        if stop_event.is_set():
+            if reset_flag:
+                break
+            else:
+                pass
         else:
-            elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
-            variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
-            
-            elbo_list.append(elbo)
-            variational_parameters_list.append(variational_parameters[0].item())
-            
-            # if iteration_count < update_rate * 10:
-            #     factor = int(iteration_count / 10) + 1
-            # else:
-            #     factor = update_rate
+            #TODO: start faster
+            if init_figure_flag:
+                elbo = 0
+            else:
+                elbo, elbo_gradient = elbo_model.evaluate_and_gradient(variational_parameters)
+                variational_parameters = optimizer.step(variational_parameters, elbo_gradient)
+                
+                elbo_list.append(elbo)
+                variational_parameters_list.append(variational_parameters[0].item())
             
             if iteration_count % update_rate == 0:
                 xlin = np.linspace(-2, 2, 100)
@@ -286,9 +285,9 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                 
 
                 fig_output.update_layout(
-                    title="Variational Inference Visualization --- Iteration: " + str(iteration_count),
+                    title="Variational Inference Visualization --- Iteration: " + str(0 if init_figure_flag else iteration_count),
                     title_x=0.5,
-                    title_y=0.95,  # 根据需要调整此值以控制标题在垂直方向上的位置        
+                    title_y=0.95,        
                     height=600,
                     width=1200,
                     margin=dict(l=0, r=0, t=100, b=100),
@@ -306,7 +305,7 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     yaxis2=dict(domain=[0, 1])    
                 )
                 
-                fig_para_elbo = make_subplots(rows=1, cols=2, subplot_titles=("Variational Parameters --- Mean: {:.5f}".format(np.mean(variational_parameters)), "Elbo --- Absolute Value: {:.2f}".format(np.abs(elbo))))
+                fig_para_elbo = make_subplots(rows=1, cols=2, subplot_titles=("Variational Parameters --- Mean: {:.5f}".format(0 if init_figure_flag else np.mean(variational_parameters)), "Elbo --- Absolute Value: {:.2f}".format(np.abs(elbo))))
                 
                 # fig_para_elbo.add_trace(go.Scatter(
                 #     x=np.arange(len(variational_parameters_list)),
@@ -323,14 +322,20 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                 ), row=1, col=1)
                 
                 fig_para_elbo.add_trace(go.Scatter(
-                    x=np.arange(len(elbo_list)),
-                    y=np.array(elbo_list),
+                    x=None if init_figure_flag else np.arange(len(elbo_list)),
+                    y=None if init_figure_flag else np.array(elbo_list),
                     mode='lines',
                     line=dict(color='blue', width=2)
                 ), row=1, col=2)
                 
+                if init_figure_flag:
+                    yaxis2_range = [-25, 2]
+                else:
+                    if elbo_list:
+                        yaxis2_range = [np.min(elbo_list), np.max(elbo_list)]
+        
                 fig_para_elbo.update_layout(
-                    title="Variational Parameters and Elbo --- Iteration: " + str(iteration_count),
+                    title="Variational Parameters and Elbo --- Iteration: " + str(0 if init_figure_flag else iteration_count),
                     title_x=0.5,
                     title_y=0.95,         
                     height=300,
@@ -344,10 +349,10 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     showlegend=False,
-                    xaxis_range=[0, len(variational_parameters)+1],
+                    xaxis_range=[0, 80 if init_figure_flag else len(variational_parameters)+1],
                     yaxis_range=[-2, 2],
                     xaxis2_range=[0, max_iter],
-                    yaxis2_range=[np.min(elbo_list), np.max(elbo_list)]
+                    yaxis2_range=yaxis2_range
                 )
                 
                 fig_para_elbo.update_xaxes(
@@ -374,8 +379,13 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
                     output_figure_queue.put(fig_output)
                     para_elbo_figure_queue.put(fig_para_elbo)
                     time.sleep(0.5)
-            
+
             iteration_count += 1
+            while True:
+                if init_figure_flag:
+                    iteration_count = 0
+                else:
+                    break; 
 
 @app.callback(
     Output('interval-component', 'disabled'),
@@ -395,22 +405,18 @@ def image_generator(model_type, optimizer_type, batch_size, learning_rate, max_i
     ]
 )
 def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate):
-    global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag
-
+    global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag, init_figure_flag
+    
     ctx = dash.callback_context
-
-    if not ctx.triggered:
-        return True
-
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     if button_id == 'start-button':
         reset_flag = False
+        if init_figure_flag:
+            init_figure_flag = False
+            output_figure_queue.queue.clear()
+            para_elbo_figure_queue.queue.clear()
         stop_event.clear()
-        if start_clicks == 1:
-            image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
-            image_thread.start()
-        return False  # Enable Interval component
     elif button_id == 'stop-button':
         reset_flag = False
         stop_event.set()
@@ -422,13 +428,14 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
         output_figure_queue.queue.clear()
         para_elbo_figure_queue.queue.clear()
         stop_event.clear()
+        init_figure_flag = True
+    
+    if init_figure_flag:
+        #TODO: Synchronization
         image_thread = threading.Thread(target=image_generator, args=(model_type, optimizer_type, batch_size, learning_rate, max_iter, random_seed, update_rate))
         image_thread.start()
-        # extra_layers = []
-        # extra_layers_info = []
-        return False  # Disable Interval component initially
-    
-    return True
+        
+    return False
 
 @app.callback(
     [Output('output-graph', 'figure'),
@@ -436,7 +443,7 @@ def manage_image_generation(start_clicks, stop_clicks, reset_clicks, model_type,
     [Input('interval-component', 'n_intervals')]
 )
 def update_graph(n_intervals):
-    global last_output_figure, last_para_elbo_figure, extra_layers, output_figure_queue, para_elbo_figure_queue
+    global last_output_figure, last_para_elbo_figure, output_figure_queue, para_elbo_figure_queue
     if not output_figure_queue.empty():
         last_output_figure = output_figure_queue.get()
     if not para_elbo_figure_queue.empty():
