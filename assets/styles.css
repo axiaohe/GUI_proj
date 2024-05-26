@@ -1,0 +1,47 @@
+/* assets/styles.css */
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #f0f4f8;
+    font-family: Arial, sans-serif;
+}
+
+.button {
+    margin-right: 10px;
+    color: white;
+    border: none;
+    /* padding: 5px 10px; */
+    border-radius: 5px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.button:active {
+    transform: scale(0.95);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.button-start {
+    padding: 10px 15px;
+    background-color: #28a745;
+}
+
+.button-stop {
+    padding: 10px 15px;
+    background-color: #ffc107;
+}
+
+.button-reset {
+    padding: 10px 15px;
+    background-color: #6c757d;
+}
+
+.button-add {
+    padding: 5px 10px;
+    background-color: #007bff;
+}
+
+.button-remove {
+    padding: 5px 10px;
+    background-color: #dc3545;
+}
