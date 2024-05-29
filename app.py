@@ -60,7 +60,7 @@ app.layout = html.Div(
         html.Div(
             [
                 dcc.Interval(
-                    id="interval-component", interval=200, n_intervals=0, disabled=True
+                    id="interval-component", interval=250, n_intervals=0, disabled=True
                 ),
                 html.Div(
                     style={"display": "flex", "justifyContent": "space-between"},
@@ -235,6 +235,7 @@ app.layout = html.Div(
                                         dcc.Textarea(
                                             id="layers-info",
                                             value=" ",
+                                            readOnly=True,
                                             style={
                                                 "width": "95%",
                                                 "height": "80px",
@@ -495,7 +496,8 @@ def image_generator(
                 )
 
                 elbo_list.append(elbo)
-                variational_parameters_list.append(variational_parameters[0].item())
+                # variational_parameters_list.append(variational_parameters[0].item())
+                variational_parameters_list.append(np.array(variational_parameters))
 
             if iteration_count % update_rate == 0:
                 xlin = np.linspace(-2, 2, 100)
@@ -572,30 +574,27 @@ def image_generator(
                     rows=1,
                     cols=2,
                     subplot_titles=(
-                        "Variational Parameters --- Mean: {:.5f}".format(
-                            0 if init_figure_flag else np.mean(variational_parameters)
-                        ),
+                        "Variational Parameters",
                         "Elbo --- Absolute Value: {:.2f}".format(np.abs(elbo)),
                     ),
                 )
-
-                # fig_para_elbo.add_trace(go.Scatter(
-                #     x=np.arange(len(variational_parameters_list)),
-                #     y=np.array(variational_parameters_list),
-                #     mode='lines',
-                #     line=dict(color='red', width=2)
-                # ), row=1, col=1)
-
-                fig_para_elbo.add_trace(
-                    go.Scatter(
-                        x=np.arange(len(variational_parameters)),
-                        y=np.array(variational_parameters),
-                        mode="markers",
-                        line=dict(color="orange", width=2),
-                    ),
-                    row=1,
-                    col=1,
-                )
+                
+                y_value = np.array(variational_parameters_list).T
+                if y_value.shape[0] == 0:
+                    i_range = range(1)
+                else:
+                    i_range = range(y_value.shape[0])
+                for i in i_range:
+                    fig_para_elbo.add_trace(
+                        go.Scatter(
+                            x= None if init_figure_flag else np.arange(len(variational_parameters_list)),
+                            y= None if init_figure_flag else y_value[i, :],
+                            mode='lines',
+                            line=dict(width=2),
+                        ),
+                        row=1,
+                        col=1,
+                    )
 
                 fig_para_elbo.add_trace(
                     go.Scatter(
@@ -621,17 +620,19 @@ def image_generator(
                     width=700,
                     margin=dict(l=50, r=0, t=75, b=0),
                     autosize=False,
-                    xaxis_title="Different Parameters",
-                    yaxis_title="Value of Parameters",
+                    xaxis_title="Iterataion",
+                    yaxis_title="Parameters Value",
                     xaxis2_title="Iteration",
                     yaxis2_title="Elbo Value",
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                     showlegend=False,
-                    xaxis_range=[
-                        0,
-                        80 if init_figure_flag else len(variational_parameters) + 1,
-                    ],
+                    # xaxis_range=[
+                    #     0,
+                    #     80 if init_figure_flag else len(variational_parameters) + 1,
+                    # ],
+                    # xaxis_range=[0, iteration_count],
+                    xaxis_range=[0, max_iter],
                     yaxis_range=[-2, 2],
                     xaxis2_range=[0, iteration_count],
                     # xaxis2_range=[0, max_iter],
@@ -670,13 +671,15 @@ def image_generator(
             if init_figure_flag:
                 init_finished = True
 
-            iteration_count += 1
             while True:
                 if init_figure_flag and not reset_flag:
                     iteration_count = 0
                     time.sleep(0.1)
                 else:
                     break
+                
+            iteration_count += 1
+            
         else:
             if reset_flag:
                 break
@@ -717,19 +720,19 @@ def manage_image_generation(
     global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag, init_figure_flag
 
     ctx = dash.callback_context
-    button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
     with lock:
-        if button_id == "start-button":
+        if triggered_id == "start-button":
             if init_figure_flag:
                 init_figure_flag = False
                 output_figure_queue.queue.clear()
                 para_elbo_figure_queue.queue.clear()
             stop_event.clear()
-        elif button_id == "stop-button":
+        elif triggered_id == "stop-button":
             stop_event.set()
             return True  # Disable Interval component
-        elif button_id == "reset-button" and (start_clicks != 0):
+        elif triggered_id == "reset-button" and (start_clicks != 0):
             stop_event.set()
             init_figure_flag = False
             reset_flag = True
