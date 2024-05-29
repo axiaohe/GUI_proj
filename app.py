@@ -60,7 +60,7 @@ app.layout = html.Div(
         html.Div(
             [
                 dcc.Interval(
-                    id="interval-component", interval=250, n_intervals=0, disabled=True
+                    id="interval-component", interval=500, n_intervals=0, disabled=True
                 ),
                 html.Div(
                     style={"display": "flex", "justifyContent": "space-between"},
@@ -360,7 +360,7 @@ app.layout = html.Div(
                                         dcc.Input(
                                             id="update-rate",
                                             type="number",
-                                            value=10,
+                                            value=20,
                                             step=5,
                                             style={
                                                 "width": "100%",
@@ -486,6 +486,11 @@ def image_generator(
     elbo_list = []
     variational_parameters_list = []
     while iteration_count <= max_iter:
+        # These variables will be NoneType in a update process, we should exclude this situation
+        if not (batch_size and learning_rate and max_iter and random_seed and update_rate):
+            init_finished = False
+            break
+        
         if (not stop_event.is_set()) or init_figure_flag:
             if not init_figure_flag:
                 elbo, elbo_gradient = elbo_model.evaluate_and_gradient(
@@ -500,8 +505,8 @@ def image_generator(
                 variational_parameters_list.append(np.array(variational_parameters))
 
             if iteration_count % update_rate == 0:
-                xlin = np.linspace(-2, 2, 100)
-                ylin = np.linspace(-2, 3, 100)
+                xlin = np.linspace(-3, 3, 100)
+                ylin = np.linspace(-3, 3, 100)
                 X, Y = np.meshgrid(xlin, ylin)
                 positions = np.vstack([X.ravel(), Y.ravel()]).T
                 samples = variational_distribution.draw(
@@ -520,15 +525,15 @@ def image_generator(
                         y=samples[:, 1].flatten(),
                         autobinx=False,
                         autobiny=False,
-                        xbins=dict(start=-2, end=2, size=0.04),
-                        ybins=dict(start=-2, end=3, size=0.05),
+                        xbins=dict(start=-3, end=3, size=0.04),
+                        ybins=dict(start=-3, end=3, size=0.05),
                         colorscale="Viridis",
                         colorbar=dict(title="Density", x=0.4),
                     ),
                     row=1,
                     col=1,
                 )
-
+                
                 fig_output.add_trace(
                     go.Contour(
                         x=positions[:, 0],
@@ -547,6 +552,7 @@ def image_generator(
                     row=1,
                     col=2,
                 )
+
 
                 fig_output.update_layout(
                     title="Variational Inference Visualization --- Iteration: "
@@ -580,10 +586,13 @@ def image_generator(
                 )
                 
                 y_value = np.array(variational_parameters_list).T
+                
                 if y_value.shape[0] == 0:
                     i_range = range(1)
+                    y_value = np.zeros((1, 1))
                 else:
                     i_range = range(y_value.shape[0])
+
                 for i in i_range:
                     fig_para_elbo.add_trace(
                         go.Scatter(
@@ -595,7 +604,8 @@ def image_generator(
                         row=1,
                         col=1,
                     )
-
+                print(y_value.shape)
+                    
                 fig_para_elbo.add_trace(
                     go.Scatter(
                         x=None if init_figure_flag else np.arange(len(elbo_list)),
@@ -607,6 +617,9 @@ def image_generator(
                     col=2,
                 )
 
+                yaxis_range = [-2, 2]
+                if y_value.shape[0]:
+                    yaxis_range = [np.min(y_value), np.max(y_value)]
                 yaxis2_range = [-25, 2]
                 if elbo_list:
                     yaxis2_range = [np.min(elbo_list), np.max(elbo_list)]
@@ -627,13 +640,9 @@ def image_generator(
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                     showlegend=False,
-                    # xaxis_range=[
-                    #     0,
-                    #     80 if init_figure_flag else len(variational_parameters) + 1,
-                    # ],
-                    # xaxis_range=[0, iteration_count],
-                    xaxis_range=[0, max_iter],
-                    yaxis_range=[-2, 2],
+                    xaxis_range=[0, iteration_count],
+                    # xaxis_range=[0, max_iter],
+                    yaxis_range=yaxis_range,
                     xaxis2_range=[0, iteration_count],
                     # xaxis2_range=[0, max_iter],
                     yaxis2_range=yaxis2_range,
@@ -694,15 +703,15 @@ def image_generator(
         Input("start-button", "n_clicks"),
         Input("stop-button", "n_clicks"),
         Input("reset-button", "n_clicks"),
-    ],
-    [
-        State("model-type", "value"),
-        State("optimizer-type", "value"),
-        State("batch-size", "value"),
-        State("learning-rate", "value"),
-        State("max-iter", "value"),
-        State("random-seed", "value"),
-        State("update-rate", "value"),
+        Input("model-type", "value"),
+        Input("optimizer-type", "value"),
+        Input("batch-size", "value"),
+        Input("learning-rate", "value"),
+        Input("max-iter", "value"),
+        Input("random-seed", "value"),
+        Input("update-rate", "value"),
+        Input("add-button", "n_clicks"),
+        Input("remove-button", "n_clicks"),
     ],
 )
 def manage_image_generation(
@@ -716,12 +725,15 @@ def manage_image_generation(
     max_iter,
     random_seed,
     update_rate,
+    add_clicks,
+    remove_clicks,
 ):
     global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag, init_figure_flag
 
+    #TODO: too frequently press reset add remove will occur error
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
+    
     with lock:
         if triggered_id == "start-button":
             if init_figure_flag:
@@ -732,7 +744,18 @@ def manage_image_generation(
         elif triggered_id == "stop-button":
             stop_event.set()
             return True  # Disable Interval component
-        elif triggered_id == "reset-button" and (start_clicks != 0):
+        # elif triggered_id == "reset-button" and (start_clicks != 0) or triggered_id in [
+        elif triggered_id == "reset-button" or triggered_id in [
+            "model-type",
+            "optimizer-type",
+            "batch-size",
+            "learning-rate",
+            "max-iter",
+            "random-seed",
+            "update-rate",
+            "add-button",
+            "remove-button"
+        ]:
             stop_event.set()
             init_figure_flag = False
             reset_flag = True
