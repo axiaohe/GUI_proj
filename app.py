@@ -604,7 +604,6 @@ def image_generator(
                         row=1,
                         col=1,
                     )
-                print(y_value.shape)
                     
                 fig_para_elbo.add_trace(
                     go.Scatter(
@@ -676,9 +675,12 @@ def image_generator(
             # start faster, prevent the first iteration from being skipped
             if init_figure_flag:
                 init_finished = False
-            elbo_model.evaluate_and_gradient(variational_parameters)
+                # print("start initialization")
+            if not reset_flag:
+                elbo_model.evaluate_and_gradient(variational_parameters)
             if init_figure_flag:
                 init_finished = True
+                # print("finish initialization\n")
 
             while True:
                 if init_figure_flag and not reset_flag:
@@ -686,7 +688,7 @@ def image_generator(
                     time.sleep(0.1)
                 else:
                     break
-                
+
             iteration_count += 1
             
         else:
@@ -730,7 +732,6 @@ def manage_image_generation(
 ):
     global output_figure_queue, para_elbo_figure_queue, extra_layers, extra_layers_info, image_thread, stop_event, reset_flag, init_figure_flag
 
-    #TODO: too frequently press reset add remove will occur error
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
     
@@ -756,14 +757,18 @@ def manage_image_generation(
             "add-button",
             "remove-button"
         ]:
+            # print("start reset")
             stop_event.set()
             init_figure_flag = False
             reset_flag = True
+            # print("start thread_join")
             image_thread.join()
+            # print("finish thread_join")
             output_figure_queue.queue.clear()
             para_elbo_figure_queue.queue.clear()
             stop_event.clear()
             init_figure_flag = True
+            # print("finish reset")
 
         reset_flag = False
         if image_thread is not None and image_thread.is_alive() and not init_finished:
@@ -771,6 +776,7 @@ def manage_image_generation(
         elif (init_figure_flag and image_thread is None) or (
             init_figure_flag and not image_thread.is_alive()
         ):
+            # print("start thread_create")
             image_thread = threading.Thread(
                 target=image_generator,
                 args=(
@@ -784,9 +790,9 @@ def manage_image_generation(
                 ),
             )
             image_thread.start()
+            # print("finish thread_create")
 
     return False
-
 
 @app.callback(
     [Output("output-graph", "figure"), Output("para_elbo-graph", "figure")],
