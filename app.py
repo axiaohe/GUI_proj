@@ -204,6 +204,7 @@ app.layout = html.Div(
                                             type="number",
                                             value=None,
                                             step=1,
+                                            min=0,
                                             style={
                                                 "width": "30px",
                                                 "marginRight": "5px",
@@ -505,8 +506,8 @@ def image_generator(
                 variational_parameters_list.append(np.array(variational_parameters))
 
             if iteration_count % update_rate == 0:
-                xlin = np.linspace(-3, 3, 100)
-                ylin = np.linspace(-3, 3, 100)
+                xlin = np.linspace(-3.5, 3.5, 100)
+                ylin = np.linspace(-3.5, 3.5, 100)
                 X, Y = np.meshgrid(xlin, ylin)
                 positions = np.vstack([X.ravel(), Y.ravel()]).T
                 samples = variational_distribution.draw(
@@ -518,15 +519,15 @@ def image_generator(
                 fig_output = make_subplots(
                     rows=1, cols=2, subplot_titles=("Normalizing Flow PDF", "True PDF")
                 )
-
+                
                 fig_output.add_trace(
                     go.Histogram2d(
                         x=samples[:, 0].flatten(),
                         y=samples[:, 1].flatten(),
                         autobinx=False,
                         autobiny=False,
-                        xbins=dict(start=-3, end=3, size=0.04),
-                        ybins=dict(start=-3, end=3, size=0.05),
+                        xbins=dict(start=-3.5, end=3.5, size=0.04),
+                        ybins=dict(start=-3.5, end=3.5, size=0.05),
                         colorscale="Viridis",
                         colorbar=dict(title="Density", x=0.4),
                     ),
