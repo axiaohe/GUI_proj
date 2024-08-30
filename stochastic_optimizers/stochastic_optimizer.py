@@ -54,4 +54,5 @@ class StochasticOptimizer(metaclass=abc.ABCMeta):
         """
         gradient = self.scheme_specific_gradient(gradient)
         variational_parameters += self.precoefficient * self.learning_rate * gradient
+        self.iteration += 1
         return variational_parameters
