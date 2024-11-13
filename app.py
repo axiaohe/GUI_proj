@@ -24,23 +24,24 @@ lock = threading.Lock()
 
 # Define global variables
 queue_size = 400  # Maximum size of the image queue
-# Queue to store generated images
-output_figure_queue = queue.Queue(maxsize=queue_size)
+output_figure_queue = queue.Queue(maxsize=queue_size)  # Queue to store generated images
 para_elbo_figure_queue = queue.Queue(
     maxsize=queue_size
 )  # Queue to store generated images
 last_output_figure = go.Figure()  # Global variable to store the last figure
 last_para_elbo_figure = go.Figure()  # Global variable to store the last figure
 
-extra_layers = []
-extra_layers_info = []
+extra_layers = []  # List to store the extra layers
+extra_layers_info = []  # List to store the extra layers information
 
-image_thread = None
+image_thread = None  # Thread to generate the images
 stop_event = threading.Event()  # Event to stop the image generation thread
-reset_flag = False
-init_figure_flag = True
-init_finished = False
+reset_flag = False  # Flag to reset the image generation
+init_figure_flag = True  # Flag to initialize the image generation
+init_finished = False  # Flag to indicate the initialization is finished
 
+
+# Create the Dash app
 app = dash.Dash(__name__)
 
 app.layout = html.Div(
@@ -488,10 +489,12 @@ def image_generator(
     variational_parameters_list = []
     while iteration_count <= max_iter:
         # These variables will be NoneType in a update process, we should exclude this situation
-        if not (batch_size and learning_rate and max_iter and random_seed and update_rate):
+        if not (
+            batch_size and learning_rate and max_iter and random_seed and update_rate
+        ):
             init_finished = False
             break
-        
+
         if (not stop_event.is_set()) or init_figure_flag:
             if not init_figure_flag:
                 elbo, elbo_gradient = elbo_model.evaluate_and_gradient(
@@ -519,7 +522,7 @@ def image_generator(
                 fig_output = make_subplots(
                     rows=1, cols=2, subplot_titles=("Normalizing Flow PDF", "True PDF")
                 )
-                
+
                 fig_output.add_trace(
                     go.Histogram2d(
                         x=samples[:, 0].flatten(),
@@ -534,7 +537,7 @@ def image_generator(
                     row=1,
                     col=1,
                 )
-                
+
                 fig_output.add_trace(
                     go.Contour(
                         x=positions[:, 0],
@@ -553,7 +556,6 @@ def image_generator(
                     row=1,
                     col=2,
                 )
-
 
                 fig_output.update_layout(
                     title="Variational Inference Visualization --- Iteration: "
@@ -585,9 +587,9 @@ def image_generator(
                         "Elbo --- Absolute Value: {:.2f}".format(np.abs(elbo)),
                     ),
                 )
-                
+
                 y_value = np.array(variational_parameters_list).T
-                
+
                 if y_value.shape[0] == 0:
                     i_range = range(1)
                     y_value = np.zeros((1, 1))
@@ -597,15 +599,19 @@ def image_generator(
                 for i in i_range:
                     fig_para_elbo.add_trace(
                         go.Scatter(
-                            x= None if init_figure_flag else np.arange(len(variational_parameters_list)),
-                            y= None if init_figure_flag else y_value[i, :],
-                            mode='lines',
+                            x=(
+                                None
+                                if init_figure_flag
+                                else np.arange(len(variational_parameters_list))
+                            ),
+                            y=None if init_figure_flag else y_value[i, :],
+                            mode="lines",
                             line=dict(width=2),
                         ),
                         row=1,
                         col=1,
                     )
-                    
+
                 fig_para_elbo.add_trace(
                     go.Scatter(
                         x=None if init_figure_flag else np.arange(len(elbo_list)),
@@ -676,12 +682,10 @@ def image_generator(
             # start faster, prevent the first iteration from being skipped
             if init_figure_flag:
                 init_finished = False
-                # print("start initialization")
             if not reset_flag:
                 elbo_model.evaluate_and_gradient(variational_parameters)
             if init_figure_flag:
                 init_finished = True
-                # print("finish initialization\n")
 
             while True:
                 if init_figure_flag and not reset_flag:
@@ -691,7 +695,7 @@ def image_generator(
                     break
 
             iteration_count += 1
-            
+
         else:
             if reset_flag:
                 break
@@ -735,7 +739,7 @@ def manage_image_generation(
 
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    
+
     with lock:
         if triggered_id == "start-button":
             if init_figure_flag:
@@ -756,20 +760,16 @@ def manage_image_generation(
             "random-seed",
             "update-rate",
             "add-button",
-            "remove-button"
+            "remove-button",
         ]:
-            # print("start reset")
             stop_event.set()
             init_figure_flag = False
             reset_flag = True
-            # print("start thread_join")
             image_thread.join()
-            # print("finish thread_join")
             output_figure_queue.queue.clear()
             para_elbo_figure_queue.queue.clear()
             stop_event.clear()
             init_figure_flag = True
-            # print("finish reset")
 
         reset_flag = False
         if image_thread is not None and image_thread.is_alive() and not init_finished:
@@ -777,7 +777,6 @@ def manage_image_generation(
         elif (init_figure_flag and image_thread is None) or (
             init_figure_flag and not image_thread.is_alive()
         ):
-            # print("start thread_create")
             image_thread = threading.Thread(
                 target=image_generator,
                 args=(
@@ -791,9 +790,9 @@ def manage_image_generation(
                 ),
             )
             image_thread.start()
-            # print("finish thread_create")
 
     return False
+
 
 @app.callback(
     [Output("output-graph", "figure"), Output("para_elbo-graph", "figure")],
